@@ -15,38 +15,8 @@ def run_tokenize_prompt_and_output(
     output_strs: list[str],
     tokenizer: PreTrainedTokenizerBase,
 ) -> dict[str, Tensor]:
-    """Tokenize the prompt and output strings, and construct a mask aligned with
-    labels that is 1 for response tokens and 0 for other tokens (prompt or padding).
-
-    Args:
-        prompt_strs: list[str]
-            List of prompt strings.
-        output_strs: list[str]
-            List of output strings.
-        tokenizer: PreTrainedTokenizer
-            Tokenizer to use for tokenization.
-
-    Returns:
-        dict[str, torch.Tensor].
-            Let prompt_and_output_lens be a list containing the lengths of the
-            concatenated tokenized prompt and output strings. Then the returned
-            dictionary should have the following keys:
-
-            input_ids
-                torch.Tensor of shape
-                (batch_size, max(prompt_and_output_lens) - 1): the tokenized
-                prompt and output strings, with the final token sliced off.
-            labels
-                torch.Tensor of shape
-                (batch_size, max(prompt_and_output_lens) - 1): shifted input
-                ids, i.e., the input ids without the first token.
-            response_mask
-                torch.Tensor of shape
-                (batch_size, max(prompt_and_output_lens) - 1): a mask aligned
-                with labels, with value 1 where the corresponding label token
-                is part of the response and 0 otherwise.
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import tokenize_prompt_and_output
+    return tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer)
 
 
 def run_get_response_log_probs(
@@ -55,34 +25,8 @@ def run_get_response_log_probs(
     labels: torch.Tensor,
     return_token_entropy: bool,
 ) -> dict[str, torch.Tensor]:
-    """Get per-token conditional log-probabilities (given the previous tokens)
-    from a causal language model, and optionally the entropy of the model's
-    next-token distribution.
-
-    Args:
-        model: PreTrainedModel
-            HuggingFace model used for scoring (placed on the correct device
-            and in inference mode if gradients should not be computed).
-        input_ids: torch.Tensor
-            shape (batch_size, sequence_length), concatenated prompt + response
-            tokens as produced by your tokenization method.
-        labels: torch.Tensor
-            shape (batch_size, sequence_length), labels as produced by your
-            tokenization method.
-        return_token_entropy: bool
-            If True, also return per-token entropy.
-
-    Returns:
-        dict[str, torch.Tensor].
-            "log_probs"
-                shape (batch_size, sequence_length), conditional
-                log-probabilities log p_(theta)(x_t | x_(<t)).
-            "token_entropy"
-                optional, shape (batch_size, sequence_length), per-token
-                entropy for each position (present only if
-                return_token_entropy=True).
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import get_response_log_probs
+    return get_response_log_probs(model, input_ids, labels, return_token_entropy)
 
 
 def run_compute_rollout_rewards(
@@ -90,31 +34,8 @@ def run_compute_rollout_rewards(
     rollout_responses: list[str],
     repeated_ground_truths: list[str],
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Compute rewards for a list of rollout responses, along with metadata for
-    the reward components.
-
-    Args:
-        reward_fn: Callable[[str, str], dict[str, float]]
-            Scores the rollout responses against the ground truths, producing
-            a dict with keys "reward", "format_reward", and "answer_reward".
-        rollout_responses: list[str]
-            Rollouts from the policy. The length of this list is
-            rollout_batch_size = n_prompts_per_rollout_batch * group_size.
-        repeated_ground_truths: list[str]
-            The ground truths for the examples. The length of this list is
-            rollout_batch_size, because the ground truth for each example is
-            repeated group_size times.
-
-    Returns:
-        tuple[torch.Tensor, dict[str, float]].
-            raw_rewards
-                shape (rollout_batch_size,). Unnormalized rewards for each
-                rollout response.
-            metadata
-                Reward statistics to log. At minimum, include the mean total
-                and format rewards over the rollout batch.
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import compute_rollout_rewards
+    return compute_rollout_rewards(reward_fn, rollout_responses, repeated_ground_truths)
 
 
 def run_compute_group_normalized_rewards(
@@ -124,36 +45,8 @@ def run_compute_group_normalized_rewards(
     advantage_eps: float = 1e-6,
     advantage_normalizer: Literal["std", "none", "mean"] = "std",
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Compute advantages by applying the requested baseline and normalization
-    within each group.
-
-    Args:
-        raw_rewards: torch.Tensor
-            shape (rollout_batch_size,). Unnormalized rewards for each rollout
-            response, where rollout_batch_size = n_prompts_per_rollout_batch *
-            group_size.
-        group_size: int
-            Number of responses per question (group).
-        baseline: Literal["mean", "none"]
-            For this problem, support mean, which subtracts the per-group mean
-            reward. Later, none will mean no baseline subtraction.
-        advantage_eps: float
-            Small constant to avoid division by zero in normalization.
-        advantage_normalizer: Literal["std", "none", "mean"]
-            For this problem, support std, which divides by the per-group
-            standard deviation. Later, none will mean no normalization and
-            mean will mean divide by the per-group mean reward.
-
-    Returns:
-        tuple[torch.Tensor, dict[str, float]].
-            advantages
-                shape (rollout_batch_size,). Group-normalized rewards for each
-                rollout response.
-            metadata
-                your choice of other statistics to log (e.g. mean, std, max/min
-                of rewards).
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import compute_group_normalized_rewards
+    return compute_group_normalized_rewards(raw_rewards, group_size, baseline, advantage_eps, advantage_normalizer)
 
 
 def run_compute_policy_gradient_loss(
@@ -164,43 +57,11 @@ def run_compute_policy_gradient_loss(
     cliprange: float | None = None,
     response_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """Compute the policy-gradient loss at every token, where
-    raw_rewards_or_advantages is either the raw reward or an
-    already-normalized advantage.
-
-    Args:
-        raw_rewards_or_advantages: torch.Tensor
-            Shape (batch_size,) or (batch_size, 1), scalar reward/advantage for
-            each rollout response.
-        policy_log_probs: torch.Tensor
-            Shape (batch_size, sequence_length), logprobs for each token.
-        importance_reweighting_method: Literal["none", "noclip", "grpo", "gspo"]
-            "none": no importance reweighting; "noclip": apply importance
-            reweighting without clipping; "grpo": do PPO/GRPO-style
-            token-level reweighting and clipping; "gspo": do GSPO-style
-            sequence-level reweighting and clipping.
-        old_log_probs: torch.Tensor | None
-            Required unless importance_reweighting_method = "none"; shape
-            (batch_size, sequence_length).
-        cliprange: float | None = None
-            Clip parameter epsilon, required when importance_reweighting_method
-            is "grpo" or "gspo".
-        response_mask: torch.Tensor | None = None
-            Optional shape (batch_size, sequence_length) mask over response
-            tokens. Required for GSPO implementations that average the
-            sequence-level log-ratio over response tokens only.
-
-    Returns:
-        tuple[torch.Tensor, dict[str, torch.Tensor]].
-            per_token_policy_gradient_loss
-                Shape (batch_size, sequence_length), the per-token
-                policy-gradient loss (to be aggregated across the batch and
-                sequence dimensions in the training loop).
-            metadata
-                Statistics from the underlying loss call, such as
-                clip-fraction components.
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import compute_policy_gradient_loss
+    return compute_policy_gradient_loss(
+        raw_rewards_or_advantages, policy_log_probs,
+        importance_reweighting_method, old_log_probs, cliprange, response_mask
+    )
 
 
 def run_aggregate_loss_across_microbatch(
@@ -209,30 +70,10 @@ def run_aggregate_loss_across_microbatch(
     loss_normalization: Literal["sequence", "constant"] = "sequence",
     normalization_constant: int | None = None,
 ) -> torch.Tensor:
-    """Aggregate the per-token policy-gradient loss according to the response
-    mask and loss-normalization strategy.
-
-    Args:
-        per_token_policy_gradient_loss: torch.Tensor
-            Shape (batch_size, sequence_length), the per-token policy-gradient
-            loss (to be aggregated across the batch and sequence dimensions in
-            the training loop).
-        mask
-            torch.Tensor of shape (batch_size, sequence_length) denoting which
-            positions should be included in the loss.
-        loss_normalization: Literal["sequence", "constant"] = "sequence"
-            "sequence": average loss over each sequence, then average over
-            sequences; "constant": normalize total loss by a constant.
-        normalization_constant: int | None = None
-            The constant to divide total loss by; required if
-            loss_normalization = "constant".
-
-    Returns:
-        loss: torch.Tensor
-            A scalar containing the average loss. Make sure you can later call
-            backward on this loss.
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import aggregate_loss_across_microbatch
+    return aggregate_loss_across_microbatch(
+        per_token_policy_gradient_loss, mask, loss_normalization, normalization_constant
+    )
 
 
 def run_grpo_train_step(
@@ -255,73 +96,20 @@ def run_grpo_train_step(
     loss_normalization: Literal["sequence", "constant"] = "sequence",
     normalization_constant: int | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor | float]]:
-    """Execute forward-and-backward passes, with gradient_accumulation_steps
-    microbatches.
-
-    Args:
-        model: PreTrainedModel
-            HuggingFace model to train.
-        tokenizer: PreTrainedTokenizer
-            Tokenizer to use for tokenization.
-        optimizer: Optimizer
-            Optimizer for the model.
-        gradient_accumulation_steps: int
-            Number of microbatches per optimizer step.
-        max_grad_norm: float | None
-            If not None, clip the gradient norm to this value before calling
-            optimizer.step().
-        reward_fn: Callable[[str, str], dict[str, float]]
-            Scores the rollout responses against the ground truths, producing
-            a dict with keys "reward", "format_reward", and "answer_reward".
-        repeated_prompts: list[str]
-            The prompts for the examples. The length of this list is
-            rollout_batch_size, because the prompt for each example is repeated
-            group_size times.
-        rollout_responses: list[str]
-            Rollouts from the policy. The length of this list is
-            rollout_batch_size = n_prompts_per_rollout_batch * group_size.
-        repeated_ground_truths: list[str]
-            The ground truths for the examples. The length of this list is
-            rollout_batch_size, because the ground truth for each example is
-            repeated group_size times.
-        group_size: int
-            Number of responses per question (group).
-        baseline: Literal["mean", "none"]
-            If mean, subtract the per-group mean reward; if none, do nothing.
-        advantage_eps: float
-            Small constant to avoid division by zero in normalization.
-        advantage_normalizer: Literal["std", "none", "mean"]
-            If std, divide by the per-group standard deviation; if none, do
-            nothing; if mean, divide by the per-group mean reward.
-        importance_reweighting_method: Literal["none", "noclip", "grpo", "gspo"]
-            "none": no importance reweighting; "noclip": apply importance
-            reweighting without clipping; "grpo": do PPO/GRPO-style token-level
-            reweighting and clipping; "gspo": do GSPO-style sequence-level
-            reweighting and clipping.
-        old_log_probs: torch.Tensor | None
-            Required unless importance_reweighting_method = "none"; shape
-            (batch_size, sequence_length).
-        cliprange: float | None = None
-            Clip parameter epsilon, required when importance_reweighting_method
-            is "grpo" or "gspo".
-        loss_normalization: Literal["sequence", "constant"] = "sequence"
-            "sequence": average loss over each sequence, then average over
-            sequences; "constant": normalize total loss by a constant (fixed
-            for all of training).
-        normalization_constant: int | None = None
-            The constant to divide total loss by; required if
-            loss_normalization = "constant".
-
-    Returns:
-        tuple[torch.Tensor, dict[str, torch.Tensor]].
-            loss
-                scalar tensor. The batch loss, adjusted for gradient
-                accumulation. We return this so we can log it.
-            metadata
-                Dict with metadata from the underlying loss call, gradient norm
-                before clipping, and any other statistics you might want to log.
-    """
-    raise NotImplementedError
+    from cs336_alignment.grpo import grpo_train_step
+    return grpo_train_step(
+        model=model, tokenizer=tokenizer, optimizer=optimizer,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        max_grad_norm=max_grad_norm, reward_fn=reward_fn,
+        repeated_prompts=repeated_prompts, rollout_responses=rollout_responses,
+        repeated_ground_truths=repeated_ground_truths, group_size=group_size,
+        baseline=baseline, advantage_eps=advantage_eps,
+        advantage_normalizer=advantage_normalizer,
+        importance_reweighting_method=importance_reweighting_method,
+        old_log_probs=old_log_probs, cliprange=cliprange,
+        loss_normalization=loss_normalization,
+        normalization_constant=normalization_constant,
+    )
 
 
 """
